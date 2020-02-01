@@ -1,6 +1,6 @@
-import { afterUpdate } from 'svelte';
-import { writable, get } from 'svelte/store';
-import * as rules from './rules';
+import { afterUpdate } from "svelte";
+import { writable, get } from "svelte/store";
+import * as rules from "./rules";
 
 function getValue(field) {
   return field.value;
@@ -18,8 +18,7 @@ function validate(value, { field, validator, observable, enabled }) {
 
   if (enabled === false) {
     return [valid, pending, rule];
-  }
-  else if (typeof validator === 'function') {
+  } else if (typeof validator === "function") {
     const resp = validator.call(null, value);
 
     if (isPromise(resp)) {
@@ -51,42 +50,53 @@ function validate(value, { field, validator, observable, enabled }) {
   return [valid, rule, pending];
 }
 
-function field(name, config, observable, { stopAtFirstError }) {
-    const { value, validators = [], enabled = true } = config;
-    let valid = true;
-    let pending = false;
-    let errors = [];
+function field(name, config, observable, { stopAtFirstError }, force = false) {
+  const { value, validators = [], enabled = true } = config;
+  let valid = true;
+  let pending = false;
+  let errors = [];
 
-    if (enabled) {
-      for (let i = 0; i < validators.length; i++) {
-        const [isValid, rule, isPending] = validate(value, { field: name, validator: validators[i], observable });
-  
-        if (!pending && isPending) {
-          pending = true;
-        }
-        
-        if (!isValid) {
-          valid = false;
-          errors = [...errors, rule];
-  
-          if (stopAtFirstError) break;
-        }
+  if (config.enabled === undefined) {
+    config.enabled = force;
+  }
+
+  if (enabled || force) {
+    for (let i = 0; i < validators.length; i++) {
+      const [isValid, rule, isPending] = validate(value, {
+        field: name,
+        validator: validators[i],
+        observable
+      });
+
+      if (!pending && isPending) {
+        pending = true;
+      }
+
+      if (!isValid) {
+        valid = false;
+        errors = [...errors, rule];
+
+        if (stopAtFirstError) break;
       }
     }
+  }
 
-    return { valid, errors, pending };
+  return { valid, errors, pending };
 }
 
-export function bindClass(node, { form, name, valid = 'valid', invalid = 'invalid' }) {
-  const key = name || node.getAttribute('name');
+export function bindClass(
+  node,
+  { form, name, valid = "valid", invalid = "invalid" }
+) {
+  const key = name || node.getAttribute("name");
 
-  const unsubscribe = form.subscribe((context) => {
+  const unsubscribe = form.subscribe(context => {
     if (context.dirty && context[key] && context[key].valid) {
       node.classList.add(valid);
     } else {
       node.classList.remove(valid);
     }
-  
+
     if (context.dirty && context[key] && !context[key].valid) {
       node.classList.add(invalid);
     } else {
@@ -96,34 +106,39 @@ export function bindClass(node, { form, name, valid = 'valid', invalid = 'invali
 
   return {
     destroy: unsubscribe
-  }
+  };
 }
 
 export function form(fn, config = {}) {
-  const storeValue = writable({ oldValues: {}, dirty: false  });
+  const storeValue = writable({ oldValues: {}, dirty: false });
   const { subscribe, set, update } = storeValue;
-  config = Object.assign({ initCheck: true, validateOnChange: true, stopAtFirstError: true}, config);
-  
+  config = Object.assign(
+    { initCheck: true, validateOnChange: true, stopAtFirstError: true },
+    config
+  );
+
   if (config.validateOnChange) {
     afterUpdate(() => walkThroughFields(fn, storeValue, config));
   }
-
 
   if (config.initCheck) {
     walkThroughFields(fn, storeValue, config);
   }
 
   return {
-    subscribe, set, update,
+    subscribe,
+    set,
+    update,
 
     validate() {
-      walkThroughFields(fn, storeValue, config);  
+      walkThroughFields(fn, storeValue, config, true);
     }
   };
 }
 
-function walkThroughFields(fn, observable, config) {
+function walkThroughFields(fn, observable, config, force = false) {
   const fields = fn.call();
+
   const returnedObject = { oldValues: {}, dirty: false };
   const context = get(observable);
 
@@ -132,14 +147,16 @@ function walkThroughFields(fn, observable, config) {
   Object.keys(fields).forEach(key => {
     const value = getValue(fields[key]);
     const enabled = fields[key].enabled;
-    const oldValue = context.oldValues[key] || { value: undefined, enabled: true };
+    const oldValue = context.oldValues[key] || {
+      value: undefined,
+      enabled: true
+    };
 
-    if (enabled !== oldValue.enabled || value !== oldValue.value) {
-      returnedObject[key] = field(key, fields[key], observable, config);
-    }
-    else {
+    if (force || enabled !== oldValue.enabled || value !== oldValue.value) {
+      returnedObject[key] = field(key, fields[key], observable, config, force);
+    } else {
       returnedObject[key] = context[key];
-        
+
       if (!enabled) {
         returnedObject[key].valid = true;
         returnedObject[key].errors = [];
@@ -147,17 +164,20 @@ function walkThroughFields(fn, observable, config) {
     }
 
     returnedObject.oldValues[key] = { value, enabled };
-    
-    if (!context.dirty && oldValue.value !== undefined && value !== oldValue.value) {
+
+    if (
+      !context.dirty &&
+      oldValue.value !== undefined &&
+      value !== oldValue.value
+    ) {
       returnedObject.dirty = true;
     }
   });
 
   returnedObject.valid = !Object.keys(returnedObject).find(f => {
-    if (['oldValues', 'dirty'].includes(f)) return false;
+    if (["oldValues", "dirty"].includes(f)) return false;
     return !returnedObject[f].valid;
   });
 
   observable.set(returnedObject);
 }
-
